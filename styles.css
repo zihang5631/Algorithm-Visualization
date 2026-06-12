@@ -435,7 +435,8 @@ body {
     height: 100%;
     min-height: 200px;
     gap: 2px;
-    padding: 16px;
+    /* 底部留出 42px 空间给柱子下方的数字标签（避免被 overflow:hidden 裁掉） */
+    padding: 16px 16px 42px 16px;
     background: #f8f9fa;
     border-radius: 8px;
     border: 1px solid #e9ecef;
