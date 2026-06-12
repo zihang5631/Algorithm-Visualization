@@ -77,18 +77,23 @@
                     </h2>
                     <div class="group-content">
                         <div class="param-item">
-                            <label class="param-label" for="arraySize">数组大小</label>
+                            <div class="param-label-row">
+                                <label class="param-label" for="arraySize">数组大小</label>
+                                <span class="param-range" id="sizeRange">10 - 100</span>
+                            </div>
                             <div class="param-control">
                                 <input type="range" id="arraySize" min="10" max="100" value="30" class="param-slider">
                                 <output id="sizeValue" class="param-value">30</output>
                             </div>
                         </div>
                         <div class="param-item">
-                            <label class="param-label" for="sortSpeed">排序速度</label>
+                            <div class="param-label-row">
+                                <label class="param-label" for="sortSpeed">排序速度</label>
+                                <span class="param-range" id="speedRange">10 - 500 ms/步</span>
+                            </div>
                             <div class="param-control">
                                 <input type="range" id="sortSpeed" min="10" max="500" value="100" class="param-slider">
                                 <output id="speedValue" class="param-value">100</output>
-                                <span class="param-unit">ms/步</span>
                             </div>
                         </div>
                     </div>
@@ -199,6 +204,26 @@
                     <!-- 图表展示 -->
                     <div class="chart-container">
                         <div id="barsContainer" class="bars-wrapper"></div>
+                    </div>
+
+                    <!-- 颜色含义图例 -->
+                    <div class="chart-legend" aria-label="柱状图颜色含义">
+                        <div class="legend-item">
+                            <span class="legend-swatch legend-swatch-default"></span>
+                            <span class="legend-text">未处理</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch legend-swatch-active"></span>
+                            <span class="legend-text">当前操作 / 键值</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch legend-swatch-comparing"></span>
+                            <span class="legend-text">正在比较</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch legend-swatch-sorted"></span>
+                            <span class="legend-text">已就位</span>
+                        </div>
                     </div>
                     
                     <!-- 实时统计 -->

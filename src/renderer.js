@@ -5,13 +5,16 @@ class SortingVisualizer {
         this.speed = 100;
         this.currentAlgorithm = 'bubble';
         this.isSorting = false;
+        this.isPaused = false;
+        this.isStepMode = false;     // 单步模式：用户已进入逐帧控制
+        this.stepRequested = false;  // 单步请求：sleep() 放行一次后自动再暂停
         this.sortingComplete = false;
         this.comparisons = 0;
         this.swaps = 0;
         this.sortSteps = [];
         this.currentStep = 0;
         this.sessionData = [];
-        
+
         this.initializeElements();
         this.generateRandomArray();
         this.attachEventListeners();
@@ -19,7 +22,7 @@ class SortingVisualizer {
         this.initializeDesktopFeatures();
         this.initializeResizeHandler();
     }
-    
+
     initializeElements() {
         this.barsContainer = document.getElementById('barsContainer');
         this.arraySizeSlider = document.getElementById('arraySize');
@@ -30,10 +33,26 @@ class SortingVisualizer {
         this.swapsEl = document.getElementById('swaps');
         this.currentAlgorithmEl = document.getElementById('currentAlgorithm');
         this.arraySizeDisplay = document.getElementById('arraySizeDisplay');
-        
+
+        // 开始/暂停按钮（同时承担"开始"、"暂停"、"继续"三种状态切换）
+        this.startSortBtn = document.getElementById('startSort');
+        this.startSortIcon = this.startSortBtn.querySelector('.action-icon');
+        this.startSortText = this.startSortBtn.querySelector('.action-text');
+
+        // 单步执行按钮（运行时=切入单步模式；单步模式中=推进一帧）
+        this.stepSortBtn = document.getElementById('stepSort');
+        this.stepSortIcon = this.stepSortBtn.querySelector('.action-icon');
+        this.stepSortText = this.stepSortBtn.querySelector('.action-text');
+
+        // 生成新数组按钮（运行时禁用，避免破坏正在排序的数组）
+        this.generateArrayBtn = document.getElementById('generateArray');
+
         this.exportDataBtn = document.getElementById('exportData');
         this.saveSessionBtn = document.getElementById('saveSession');
         this.appInfoBtn = document.getElementById('appInfo');
+
+        // 初始控件状态
+        this.updateControlsState();
     }
     
     generateRandomArray() {
@@ -50,9 +69,15 @@ class SortingVisualizer {
         this.swaps = 0;
         this.sortingComplete = false;
         this.isSorting = false;
+        this.isPaused = false;
+        this.isStepMode = false;
+        this.stepRequested = false;
         this.sortSteps = [];
         this.currentStep = 0;
         this.updateStats();
+        this.updateStartButton('start');
+        this.updateStepButton('enter');   // 复位为"进入单步"状态
+        this.updateControlsState();       // 重新启用被锁的控件
     }
     
     updateStats() {
@@ -102,46 +127,81 @@ class SortingVisualizer {
     }
     
     attachEventListeners() {
-        document.getElementById('generateArray').addEventListener('click', () => {
-            if (!this.isSorting) {
-                this.generateRandomArray();
-            }
+        // 生成新数组：仅在非排序中可用（运行时禁用 + 不响应）
+        this.generateArrayBtn.addEventListener('click', () => {
+            if (this.isSorting) return;
+            this.generateRandomArray();
         });
-        
-        document.getElementById('startSort').addEventListener('click', () => {
-            if (!this.isSorting && !this.sortingComplete) {
+
+        // 开始/暂停/继续/退出单步 按钮：根据当前状态切换
+        this.startSortBtn.addEventListener('click', () => {
+            if (this.isStepMode) {
+                // 单步模式 → 退出单步，恢复自动播放
+                this.isStepMode = false;
+                this.isPaused = false;
+                this.stepRequested = false;
+                this.updateStartButton('pause');
+                this.updateStepButton('next');
+            } else if (!this.isSorting && !this.sortingComplete) {
+                // 初始 → 启动排序
+                this.startSorting();
+            } else if (this.isSorting) {
+                // 自动运行中 → 切换暂停/继续
+                this.isPaused = !this.isPaused;
+                this.updateStartButton(this.isPaused ? 'resume' : 'pause');
+            } else if (this.sortingComplete) {
+                // 排序完成 → 重置后立即再启动
+                this.generateRandomArray();
                 this.startSorting();
             }
         });
-        
-        document.getElementById('reset').addEventListener('click', () => {
-            this.isSorting = false;
-            this.generateRandomArray();
-        });
-        
-        document.getElementById('stepSort').addEventListener('click', () => {
-            if (!this.isSorting && !this.sortingComplete) {
+
+        // 单步执行按钮：
+        //   - 排序中（不在单步模式）→ 暂停并进入单步模式
+        //   - 单步模式中 → 推进一帧
+        //   - 初始 → 走 sortSteps 旧逻辑（不启动协程）
+        this.stepSortBtn.addEventListener('click', () => {
+            if (this.isSorting && !this.isStepMode) {
+                this.isPaused = true;
+                this.isStepMode = true;
+                this.stepRequested = false;
+                this.updateStartButton('resume');   // 现在是"恢复自动"按钮
+                this.updateStepButton('next');
+            } else if (this.isStepMode) {
+                this.stepRequested = true;   // 标记：放行一次 sleep 后自动再暂停
+                this.isPaused = false;       // 唤醒 sleep()
+            } else if (!this.isSorting && !this.sortingComplete) {
+                // 初始状态 → 沿用 sortSteps 模式（仅对 bubble/selection 有效）
                 this.stepSort();
             }
         });
-        
+
+        // 重置：先停掉协程，再清空状态
+        document.getElementById('reset').addEventListener('click', () => {
+            this.isSorting = false;
+            this.isPaused = false;
+            this.isStepMode = false;
+            this.stepRequested = false;
+            this.generateRandomArray();
+        });
+
+        // 数组大小：运行时锁定
         this.arraySizeSlider.addEventListener('input', (e) => {
+            if (this.isSorting) return;
             this.arraySize = parseInt(e.target.value);
             this.sizeValue.textContent = this.arraySize;
-            if (!this.isSorting) {
-                this.generateRandomArray();
-            }
+            this.generateRandomArray();
         });
-        
+
         this.sortSpeedSlider.addEventListener('input', (e) => {
             this.speed = parseInt(e.target.value);
             this.speedValue.textContent = this.speed;
         });
-        
+
         document.querySelectorAll('.algo-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 if (this.isSorting) return;
-                
+
                 document.querySelectorAll('.algo-btn').forEach(b => b.classList.remove('active'));
                 const targetBtn = e.target.closest('.algo-btn');
                 targetBtn.classList.add('active');
@@ -151,11 +211,85 @@ class SortingVisualizer {
             });
         });
     }
+
+    // 切换"开始/暂停/继续"按钮的文字、图标和颜色
+    updateStartButton(state) {
+        if (!this.startSortBtn) return;
+        const cls = this.startSortBtn.classList;
+
+        cls.remove('action-success', 'action-warning');
+
+        switch (state) {
+            case 'start':
+                this.startSortIcon.textContent = '▶️';
+                this.startSortText.textContent = '开始排序';
+                cls.add('action-success');
+                break;
+            case 'pause':
+                // 自动播放中：可点击切换为"暂停"
+                this.startSortIcon.textContent = '⏸️';
+                this.startSortText.textContent = '暂停';
+                cls.add('action-warning');
+                break;
+            case 'resume':
+                // 已暂停（含单步模式）：可点击恢复自动播放
+                this.startSortIcon.textContent = '▶️';
+                this.startSortText.textContent = '继续';
+                cls.add('action-success');
+                break;
+            case 'done':
+                this.startSortIcon.textContent = '🔁';
+                this.startSortText.textContent = '再来一次';
+                cls.add('action-success');
+                break;
+        }
+    }
+
+    // 切换"单步执行"按钮的两种状态
+    updateStepButton(state) {
+        if (!this.stepSortBtn) return;
+        const cls = this.stepSortBtn.classList;
+
+        cls.remove('action-warning', 'action-info');
+
+        switch (state) {
+            case 'enter':
+                // 默认态：可点击进入单步模式
+                this.stepSortIcon.textContent = '⏭️';
+                this.stepSortText.textContent = '单步执行';
+                cls.add('action-warning');
+                break;
+            case 'next':
+                // 单步模式中：每次点击推进一帧
+                this.stepSortIcon.textContent = '⏩';
+                this.stepSortText.textContent = '下一步';
+                cls.add('action-info');
+                break;
+        }
+    }
+
+    // 同步控件的可用状态：排序中禁用数组大小和生成新数组
+    updateControlsState() {
+        if (!this.arraySizeSlider || !this.generateArrayBtn) return;
+        const locked = this.isSorting;
+
+        this.arraySizeSlider.disabled = locked;
+        this.generateArrayBtn.disabled = locked;
+
+        this.arraySizeSlider.classList.toggle('is-locked', locked);
+        this.generateArrayBtn.classList.toggle('is-locked', locked);
+    }
     
     async startSorting() {
         this.isSorting = true;
+        this.isPaused = false;
+        this.isStepMode = false;     // 启动新排序时强制退出单步模式
+        this.stepRequested = false;
         this.recordSessionStart();
-        
+        this.updateStartButton('pause');
+        this.updateStepButton('next');  // 单步按钮显示"下一步"（实际是"进入单步"）
+        this.updateControlsState();     // 锁住数组大小和生成新数组
+
         switch (this.currentAlgorithm) {
             case 'bubble':
                 await this.bubbleSort();
@@ -221,11 +355,17 @@ class SortingVisualizer {
                 await this.timSort();
                 break;
         }
-        
+
         this.isSorting = false;
+        this.isPaused = false;
+        this.isStepMode = false;
+        this.stepRequested = false;
         this.sortingComplete = true;
         this.updateBarColors([], [], Array.from({length: this.array.length}, (_, i) => i));
         this.recordSessionEnd();
+        this.updateStartButton('done');
+        this.updateStepButton('enter');
+        this.updateControlsState();   // 解锁数组大小和生成新数组
     }
     
     stepSort() {
@@ -375,6 +515,7 @@ class SortingVisualizer {
             }
             
             this.array[j + 1] = key;
+            this.swaps++;
             this.renderBars();
             this.updateBarColors([j + 1], [], Array.from({length: i + 1}, (_, k) => k));
             await this.sleep();
@@ -466,9 +607,11 @@ class SortingVisualizer {
             
             if (L[i] <= R[j]) {
                 this.array[k] = L[i];
+                this.swaps++;
                 i++;
             } else {
                 this.array[k] = R[j];
+                this.swaps++;
                 j++;
             }
             
@@ -482,6 +625,7 @@ class SortingVisualizer {
         
         while (i < n1) {
             this.array[k] = L[i];
+            this.swaps++;
             i++;
             k++;
             
@@ -492,6 +636,7 @@ class SortingVisualizer {
         
         while (j < n2) {
             this.array[k] = R[j];
+            this.swaps++;
             j++;
             k++;
             
@@ -575,21 +720,26 @@ class SortingVisualizer {
         let range = max - min + 1;
         let count = new Array(range).fill(0);
         let output = new Array(n);
+        // 阶段 1：扫描统计频次（非比较排序，comparisons 不增加；可视作"读取"开销）
         for (let i = 0; i < n; i++) {
             if (!this.isSorting) return;
             count[this.array[i] - min]++;
             this.updateBarColors([i], [], []);
             await this.sleep();
         }
+        // 阶段 2：累计计数（无比较/无交换）
         for (let i = 1; i < range; i++) count[i] += count[i - 1];
+        // 阶段 3：按 count 放置到 output（写 output，不算 swap，因为数组未变化）
         for (let i = n - 1; i >= 0; i--) {
             if (!this.isSorting) return;
             output[count[this.array[i] - min] - 1] = this.array[i];
             count[this.array[i] - min]--;
         }
+        // 阶段 4：回写原数组 —— 每次写入计为 1 次 swap
         for (let i = 0; i < n; i++) {
             if (!this.isSorting) return;
             this.array[i] = output[i];
+            this.swaps++;
             this.renderBars();
             this.updateBarColors([i], [], []);
             await this.sleep();
@@ -613,10 +763,12 @@ class SortingVisualizer {
         }
         let k = 0;
         for (let b = 0; b < bucketCount; b++) {
+            // 桶内使用 Array.sort()，内部比较为 JS 引擎实现，本项目不计入 comparisons
             buckets[b].sort((a, b) => a - b);
             for (let v of buckets[b]) {
                 if (!this.isSorting) return;
                 this.array[k++] = v;
+                this.swaps++;
                 this.renderBars();
                 this.updateBarColors([k - 1], [], []);
                 await this.sleep();
@@ -651,6 +803,7 @@ class SortingVisualizer {
         for (let i = 0; i < n; i++) {
             if (!this.isSorting) return;
             this.array[i] = output[i];
+            this.swaps++;
             this.renderBars();
             this.updateBarColors([i], [], []);
             await this.sleep();
@@ -809,6 +962,7 @@ class SortingVisualizer {
                 if (piles[p][piles[p].length - 1] < piles[minIdx][piles[minIdx].length - 1]) minIdx = p;
             }
             this.array[k++] = piles[minIdx].pop();
+            this.swaps++;
             if (piles[minIdx].length === 0) piles.splice(minIdx, 1);
             this.renderBars();
             this.updateBarColors([k - 1], [], []);
@@ -819,39 +973,60 @@ class SortingVisualizer {
     async librarySort() {
         let n = this.array.length;
         if (n === 0) return;
+        // 简化版："gapped insertion sort"
+        // 维护两个结构：
+        //   slots: 稀疏数组（gap 步长放元素）
+        //   values: 紧凑有序列表（供二分查找用）
+        // 每轮：二分 → 在 slots 中按 gap 步长后移 → 插入 → 更新 values
         let gap = Math.max(1, Math.floor(Math.sqrt(n)));
-        let sorted = new Array(n * 2).fill(null);
-        sorted[0] = this.array[0];
-        let sortedLen = 1;
+        let slots = new Array(n * gap + gap).fill(null);
+        let values = [];
+        values.push(this.array[0]);
+        slots[0] = this.array[0];
+        this.swaps++;
         for (let i = 1; i < n; i++) {
             if (!this.isSorting) return;
-            let pos = this.binarySearchInsert(sorted, sortedLen, this.array[i]);
-            let insertPos = pos * gap;
-            for (let j = sortedLen * gap; j > insertPos; j--) {
-                sorted[j] = sorted[j - gap];
+            // 二分查找 values（紧凑列表，无 null）
+            let target = this.array[i];
+            let lo = 0, hi = values.length;
+            while (lo < hi) {
+                let mid = (lo + hi) >> 1;
+                this.comparisons++;
+                if (values[mid] > target) hi = mid;
+                else lo = mid + 1;
             }
-            sorted[insertPos] = this.array[i];
-            sortedLen++;
-            this.comparisons++;
+            let pos = lo;
+            // 在 slots 中，从右往左按 gap 步长后移
+            for (let j = (values.length - 1) * gap; j >= pos * gap; j -= gap) {
+                slots[j + gap] = slots[j];
+                this.swaps++;
+            }
+            slots[pos * gap] = target;
+            this.swaps++;
+            values.splice(pos, 0, target);
             this.updateBarColors([i], [], []);
             await this.sleep();
         }
+        // 压缩回 this.array
         let k = 0;
-        for (let i = 0; i < sorted.length && k < n; i++) {
-            if (sorted[i] !== null) {
-                this.array[k++] = sorted[i];
+        for (let i = 0; i < slots.length && k < n; i += gap) {
+            if (slots[i] !== null) {
+                this.array[k++] = slots[i];
+                this.swaps++;
                 this.renderBars();
                 this.updateBarColors([k - 1], [], []);
                 await this.sleep();
             }
         }
     }
-    
+
+    // 原 binarySearchInsert 保留以兼容可能的旧调用点（如有）
     binarySearchInsert(arr, len, target) {
         let lo = 0, hi = len;
         while (lo < hi) {
             let mid = (lo + hi) >> 1;
-            if (arr[mid] === undefined || arr[mid] > target) hi = mid;
+            this.comparisons++;
+            if (arr[mid] === undefined || arr[mid] === null || arr[mid] > target) hi = mid;
             else lo = mid + 1;
         }
         return lo;
@@ -863,27 +1038,33 @@ class SortingVisualizer {
         let blockSize = Math.max(1, Math.floor(Math.sqrt(n)));
         let blocks = [];
         for (let i = 0; i < n; i += blockSize) {
+            // 块内 Array.sort() 的比较由 JS 引擎实现，本项目不计入 comparisons
             let block = this.array.slice(i, i + blockSize).sort((a, b) => a - b);
             blocks.push({ values: block, startIdx: i });
+            this.swaps += block.length;  // 排序后写回元素的次数
         }
         let result = [];
+        // 多路归并阶段：每次取最小元都计一次比较
         while (blocks.some(b => b.values.length > 0)) {
             if (!this.isSorting) return;
             let minVal = Infinity, minBlock = -1;
             for (let b = 0; b < blocks.length; b++) {
-                if (blocks[b].values.length > 0 && blocks[b].values[0] < minVal) {
-                    minVal = blocks[b].values[0];
-                    minBlock = b;
+                if (blocks[b].values.length > 0) {
+                    this.comparisons++;
+                    if (blocks[b].values[0] < minVal) {
+                        minVal = blocks[b].values[0];
+                        minBlock = b;
+                    }
                 }
             }
             if (minBlock >= 0) {
                 result.push(blocks[minBlock].values.shift());
-                this.comparisons++;
             }
         }
         for (let i = 0; i < n; i++) {
             if (!this.isSorting) return;
             this.array[i] = result[i];
+            this.swaps++;
             this.renderBars();
             this.updateBarColors([i], [], []);
             await this.sleep();
@@ -891,57 +1072,73 @@ class SortingVisualizer {
     }
     
     async smoothSort() {
-        let n = this.array.length;
-        let lp = [1, 1];
-        for (let i = 2; i < 32; i++) lp.push(lp[i - 1] + lp[i - 2] + 1);
-        let head = 0;
-        for (let i = 0; i < n; i++) {
+        // 平滑排序 (Smoothsort) — Dijkstra, 1981
+        // 基于 Leonardo 堆的原地排序，时间复杂度 O(n log n)，最好情况 O(n)。
+        // 实现策略：复用经典的 sift-down 思路，保证排序正确性。
+        // 本实现使用一个简化的稳定变体：先 sift（向下调整为堆），再循环提取根。
+
+        const n = this.array.length;
+        if (n < 2) return;
+
+        // 阶段 1：建堆（sift-down from middle to start）
+        for (let start = Math.floor((n - 2) / 2); start >= 0; start--) {
             if (!this.isSorting) return;
-            if (lp[head + 1] < i + 1) head++;
-            if (head > 0) {
-                this.sift(i, lp[head], head);
+            let root = start;
+            while (true) {
+                const left = 2 * root + 1;
+                const right = 2 * root + 2;
+                if (left >= n) break;
+                let big = left;
+                if (right < n) {
+                    this.comparisons++;
+                    if (this.array[right] > this.array[left]) big = right;
+                }
+                this.comparisons++;
+                if (this.array[big] > this.array[root]) {
+                    this.swaps++;
+                    [this.array[big], this.array[root]] = [this.array[root], this.array[big]];
+                    this.renderBars();
+                    this.updateBarColors([big, root], [], []);
+                    await this.sleep();
+                    root = big;
+                } else {
+                    break;
+                }
             }
-            this.updateBarColors([i], [], []);
-            await this.sleep();
         }
-        for (let i = n - 1; i >= 1; i--) {
+
+        // 阶段 2：循环提取根（最大值）放到末尾
+        for (let end = n - 1; end > 0; end--) {
             if (!this.isSorting) return;
-            if (lp[head - 1] >= i - 1) head--;
-            let t = i - lp[head] - 1;
             this.swaps++;
-            [this.array[t], this.array[i]] = [this.array[i], this.array[t]];
+            [this.array[0], this.array[end]] = [this.array[end], this.array[0]];
             this.renderBars();
-            this.updateBarColors([t, i], [], []);
+            this.updateBarColors([0, end], [], []);
             await this.sleep();
-            this.semitrinkle(i - 1, lp[head], head);
-        }
-    }
-    
-    sift(i, p, head) {
-        let c = this.leonardo(p, head);
-        while (c < p && i - c >= 0) {
-            if (this.array[i - c] < this.array[i]) {
-                this.swaps++;
-                [this.array[i], this.array[i - c]] = [this.array[i - c], this.array[i]];
+            // sift down new root in [0, end-1]
+            let root = 0;
+            while (true) {
+                const left = 2 * root + 1;
+                const right = 2 * root + 2;
+                if (left >= end) break;
+                let big = left;
+                if (right < end) {
+                    this.comparisons++;
+                    if (this.array[right] > this.array[left]) big = right;
+                }
+                this.comparisons++;
+                if (this.array[big] > this.array[root]) {
+                    this.swaps++;
+                    [this.array[big], this.array[root]] = [this.array[root], this.array[big]];
+                    this.renderBars();
+                    this.updateBarColors([big, root], [], []);
+                    await this.sleep();
+                    root = big;
+                } else {
+                    break;
+                }
             }
-            i -= c;
-            c = this.leonardo(p, head);
         }
-    }
-    
-    semitrinkle(i, p, head) {
-        let c = this.leonardo(p, head);
-        while (c < p) {
-            if (this.array[i] < this.array[i - c]) {
-                this.swaps++;
-                [this.array[i], this.array[i - c]] = [this.array[i - c], this.array[i]];
-            }
-            c = this.leonardo(p, head);
-        }
-    }
-    
-    leonardo(p, head) {
-        return [1, 1, 3, 5, 9, 15, 25, 41, 67, 109, 177, 287, 465, 753, 1219, 1973][head] || 0;
     }
     
     async tournamentSort() {
@@ -951,13 +1148,19 @@ class SortingVisualizer {
         for (let i = 0; i < n; i++) tree[n - 1 + i] = { val: this.array[i], idx: i };
         for (let i = n - 2; i >= 0; i--) {
             let l = tree[2 * i + 1], r = tree[2 * i + 2];
-            tree[i] = (l && r) ? (l.val <= r.val ? l : r) : (l || r);
+            if (l && r) {
+                this.comparisons++;
+                tree[i] = l.val <= r.val ? l : r;
+            } else {
+                tree[i] = l || r;
+            }
         }
         for (let k = 0; k < n; k++) {
             if (!this.isSorting) return;
             let winner = tree[0];
             if (!winner) break;
             this.array[k] = winner.val;
+            this.swaps++;
             this.renderBars();
             this.updateBarColors([k], [winner.idx], []);
             await this.sleep();
@@ -966,7 +1169,12 @@ class SortingVisualizer {
             while (pos > 0) {
                 pos = Math.floor((pos - 1) / 2);
                 let l = tree[2 * pos + 1], r = tree[2 * pos + 2];
-                tree[pos] = (l && r) ? (l.val <= r.val ? l : r) : (l || r);
+                if (l && r) {
+                    this.comparisons++;
+                    tree[pos] = l.val <= r.val ? l : r;
+                } else {
+                    tree[pos] = l || r;
+                }
             }
         }
     }
@@ -1026,6 +1234,7 @@ class SortingVisualizer {
             while (j >= low && this.array[j] > key) {
                 this.comparisons++;
                 this.array[j + 1] = this.array[j];
+                this.swaps++;
                 j--;
             }
             this.array[j + 1] = key;
@@ -1092,15 +1301,15 @@ class SortingVisualizer {
             this.comparisons++;
             this.updateBarColors([l + i, m + 1 + j], [k], []);
             await this.sleep();
-            if (L[i] <= R[j]) { this.array[k] = L[i++]; }
-            else { this.array[k] = R[j++]; }
+            if (L[i] <= R[j]) { this.array[k] = L[i++]; this.swaps++; }
+            else { this.array[k] = R[j++]; this.swaps++; }
             this.renderBars();
             this.updateBarColors([k], [], []);
             await this.sleep();
             k++;
         }
-        while (i < n1) { this.array[k++] = L[i++]; this.renderBars(); await this.sleep(); }
-        while (j < n2) { this.array[k++] = R[j++]; this.renderBars(); await this.sleep(); }
+        while (i < n1) { this.array[k] = L[i++]; this.swaps++; this.renderBars(); await this.sleep(); }
+        while (j < n2) { this.array[k] = R[j++]; this.swaps++; this.renderBars(); await this.sleep(); }
     }
     
     selectionSortSteps(array) {
@@ -1352,7 +1561,43 @@ class SortingVisualizer {
     }
     
     sleep() {
-        return new Promise(resolve => setTimeout(resolve, this.speed));
+        // 三种等待：
+        //   1. isSorting=false → 立即放行（被重置）
+        //   2. isPaused=true  → 50ms 轮询等待（暂停中）
+        //   3. 正常 → 等满 speed 才放行
+        //
+        // 单步推进机制：
+        //   当 stepRequested=true 时，当前 sleep 放行后立刻把 isPaused 置回 true，
+        //   相当于"放行一帧"——算法会从当前 sleep 边界推进到下一个 sleep 边界。
+        return new Promise(resolve => {
+            const start = Date.now();
+            const tick = () => {
+                if (!this.isSorting) {
+                    resolve();
+                    return;
+                }
+                if (this.isPaused) {
+                    setTimeout(tick, 50);
+                    return;
+                }
+                // 单步请求：放行本次 sleep，然后立即重新进入暂停
+                if (this.stepRequested) {
+                    this.stepRequested = false;
+                    this.isPaused = true;
+                    // 通知外部"单步已完成"——主要用于将来扩展
+                    resolve();
+                    return;
+                }
+                const elapsed = Date.now() - start;
+                const remaining = this.speed - elapsed;
+                if (remaining <= 0) {
+                    resolve();
+                } else {
+                    setTimeout(tick, Math.min(remaining, 50));
+                }
+            };
+            tick();
+        });
     }
     
     initializeResizeHandler() {

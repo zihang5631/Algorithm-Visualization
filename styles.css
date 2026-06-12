@@ -7,7 +7,7 @@
 
 /* ==================== 主容器 ==================== */
 html, body {
-    height: 100%;
+    min-height: 100%;
 }
 
 body {
@@ -15,7 +15,8 @@ body {
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    /* 解除高度锁定：允许内容超出窗口高度时整页可滚动 */
+    overflow-y: auto;
 }
 
 /* ==================== 应用工具栏 ==================== */
@@ -95,18 +96,18 @@ body {
     flex-direction: column;
     gap: 14px;
     box-sizing: border-box;
-    overflow: hidden;
+    /* 解除高度锁定：内容可自由伸展，超出窗口时由 body 整页滚动 */
+    overflow: visible;
 }
 
 /* ==================== 侧边栏与主内容布局 ==================== */
 .main-layout {
     display: flex;
     gap: 16px;
-    flex: 1;
-    min-height: 0;
+    /* 不再限制在窗口高度 —— 两栏按内容自然伸展 */
     min-width: 0;
     width: 100%;
-    overflow: hidden;
+    align-items: flex-start;
 }
 
 /* 侧边栏：参数配置、算法选择、操作控制 */
@@ -116,8 +117,8 @@ body {
     gap: 14px;
     width: 360px;
     flex-shrink: 0;
-    min-height: 0;
-    overflow: hidden;
+    /* 不再限制高度 —— 按内容自然伸展 */
+    overflow: visible;
     /* 视觉分隔：与右侧主内容区明确分开 */
     border-right: 1px solid #e9ecef;
     padding-right: 16px;
@@ -131,10 +132,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    overflow: hidden;
-    /* 右侧不自适应填满主布局高度 —— 只在合理范围内自适应 */
-    align-self: flex-start;
-    max-height: 100%;
+    /* 不再限制高度 —— 按内容自然伸展 */
+    overflow: visible;
 }
 
 /* ==================== 页面标题 ==================== */
@@ -169,11 +168,10 @@ body {
     min-height: 0;
 }
 
-/* 算法选择组：占据侧边栏剩余空间，内部可滚动 */
+/* 算法选择组：按内容自然伸展，不再被侧边栏高度限制 */
 .control-group[data-group="algorithms"] {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
+    flex: 0 0 auto;
+    overflow: visible;
 }
 
 .control-group[data-group="actions"] {
@@ -185,10 +183,8 @@ body {
 }
 
 .control-group[data-group="algorithms"] .group-content {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
+    /* 解除内部滚动限制 —— 由整页统一滚动 */
+    overflow: visible;
     margin-right: -8px;
     padding-right: 8px;
 }
@@ -219,6 +215,14 @@ body {
 .param-item {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+}
+
+/* 标签行：参数名在左，可设范围在右（同一行） */
+.param-label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 8px;
 }
 
@@ -279,6 +283,16 @@ body {
 .param-unit {
     color: #7f8c8d;
     font-size: 0.85em;
+}
+
+/* 可设置范围提示：跟在当前值后面的小字标注 */
+.param-range {
+    color: #95a5a6;
+    font-size: 0.78em;
+    font-weight: 500;
+    white-space: nowrap;
+    /* 视觉上像"补充说明"，不抢主值的视觉焦点 */
+    user-select: none;
 }
 
 /* 算法选择 */
@@ -400,6 +414,39 @@ body {
     box-shadow: 0 6px 12px rgba(231, 76, 60, 0.3);
 }
 
+/* 单步模式中"下一步"按钮的颜色（青色系，与暂停/继续形成区分） */
+.action-info {
+    background: linear-gradient(135deg, #17a2b8, #138496);
+    color: white;
+}
+
+.action-info:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(23, 162, 184, 0.3);
+}
+
+/* 控件锁定态：排序中禁用数组大小滑块和生成新数组按钮 */
+.param-slider:disabled,
+.action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    filter: grayscale(0.4);
+    /* 禁止 hover 时的位移和阴影 */
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* 锁定态加一道斜纹背景，进一步传达"不可用" */
+.param-slider.is-locked {
+    background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 4px,
+        rgba(0, 0, 0, 0.05) 4px,
+        rgba(0, 0, 0, 0.05) 8px
+    );
+}
+
 /* ==================== 可视化展示区 ==================== */
 .visualization-section {
     background: white;
@@ -410,11 +457,9 @@ body {
     width: 100%;
     box-sizing: border-box;
     min-width: 0;
-    /* 高度自适应在合理范围，防止窗口过高时图表过大、窗口过低时显示不全 */
+    /* 最小高度保底，向上随内容自然伸展 —— 不再被窗口高度限制 */
     flex: 0 0 auto;
-    height: 48vh;
-    min-height: 280px;
-    max-height: 460px;
+    min-height: 360px;
     display: flex;
     flex-direction: column;
 }
@@ -424,8 +469,9 @@ body {
     display: flex;
     width: 100%;
     min-width: 0;
-    flex: 1 1 auto;
-    min-height: 0;
+    /* 用 flex-basis: 0 让图表容器精确按可用空间分配，并给一个最小高度保底 */
+    flex: 1 1 0;
+    min-height: 220px;
 }
 
 .bars-wrapper {
@@ -484,6 +530,57 @@ body {
 .bar.sorted {
     background: linear-gradient(to top, #9b59b6, #8e44ad);
     box-shadow: 0 0 10px rgba(155, 89, 182, 0.5);
+}
+
+/* 颜色含义图例：放在柱状图下方、统计栏上方 */
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 24px;
+    padding: 12px 16px;
+    margin-top: 8px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 0.88em;
+    color: #495057;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    flex-shrink: 0;
+}
+
+.legend-swatch-default {
+    background: linear-gradient(to top, #3498db, #2980b9);
+}
+
+.legend-swatch-active {
+    background: linear-gradient(to top, #2ecc71, #27ae60);
+}
+
+.legend-swatch-comparing {
+    background: linear-gradient(to top, #e74c3c, #c0392b);
+}
+
+.legend-swatch-sorted {
+    background: linear-gradient(to top, #9b59b6, #8e44ad);
+}
+
+.legend-text {
+    font-weight: 500;
+    user-select: none;
 }
 
 /* 实时统计栏 */
