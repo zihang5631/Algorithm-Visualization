@@ -23,11 +23,15 @@ npm install
 
 ##启动项目：
 
+1：本地运行
 bash
 
 npm start
 
-包含的功能
+2：浏览器运行
+index.html
+
+##包含的功能
 
 冒泡排序
 快速排序
