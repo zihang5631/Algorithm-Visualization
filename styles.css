@@ -159,15 +159,6 @@ body {
     color: #2c3e50;
     margin: 0;
     line-height: 1.2;
-    /* 缩小后的副标题配套，字号更克制 */
-    letter-spacing: 0.2px;
-}
-
-.page-subtitle {
-    font-size: 0.82em;
-    color: #6c757d;
-    margin: 0;
-    line-height: 1.3;
 }
 
 /* ==================== 算法测试容器（每个块为单独一列，flex 子项直接参与 main-layout） ==================== */
@@ -176,8 +167,8 @@ body {
     flex-direction: column;
 }
 
-/* 当 main-layout 处于 data 模式时，隐藏所有算法测试项 */
-.main-layout.is-data-mode .algo-test-item {
+/* hidden 属性：被 JS 切到非 algo 模式时设 hidden=true 时生效 */
+.algo-test-item[hidden] {
     display: none !important;
 }
 
@@ -447,7 +438,7 @@ body {
     background: #fafbfc;
     border: 1px solid #e9ecef;
     border-radius: 6px;
-    padding: 6px 8px 4px;
+    padding: 8px 10px 6px;
 }
 
 .algo-scatter-title {
@@ -459,7 +450,7 @@ body {
 
 .algo-scatter-svg {
     width: 100%;
-    height: 140px;
+    height: 220px;
     display: block;
 }
 
@@ -668,13 +659,6 @@ body {
     border-radius: 6px;
 }
 
-.manual-group-item .manual-group-name {
-    flex: 1 1 auto;
-    font-weight: 600;
-    color: #2c3e50;
-    font-size: 0.9em;
-}
-
 .manual-group-item .manual-group-count {
     font-size: 0.78em;
     color: #6c757d;
@@ -827,210 +811,6 @@ body {
     writing-mode: horizontal-tb;
 }
 
-/* ==================== 数据面板 ==================== */
-.data-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    width: 360px;
-    flex-shrink: 0;
-    padding: 16px;
-    background: #ffffff;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    align-self: stretch;
-}
-
-.data-panel[hidden] {
-    display: none;
-}
-
-.data-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #e9ecef;
-}
-
-.data-panel-title {
-    margin: 0;
-    font-size: 1.05em;
-    color: #2c3e50;
-}
-
-.data-panel-close {
-    background: transparent;
-    border: none;
-    font-size: 1.1em;
-    color: #95a5a6;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    transition: all 0.15s ease;
-}
-
-.data-panel-close:hover {
-    background: #ecf0f1;
-    color: #2c3e50;
-}
-
-.data-panel-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.data-section-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
-    font-size: 0.92em;
-    color: #2c3e50;
-    font-weight: 600;
-}
-
-.data-section-count {
-    display: inline-block;
-    min-width: 22px;
-    text-align: center;
-    padding: 1px 6px;
-    background: #3498db;
-    color: #ffffff;
-    border-radius: 9px;
-    font-size: 0.78em;
-    font-weight: 600;
-}
-
-.data-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    max-height: 260px;
-    overflow-y: auto;
-    padding: 4px;
-    background: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 6px;
-}
-
-.data-empty {
-    padding: 20px 12px;
-    text-align: center;
-    color: #95a5a6;
-    font-size: 0.85em;
-    font-style: italic;
-}
-
-.data-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    background: #ffffff;
-    border: 1px solid #e9ecef;
-    border-radius: 5px;
-    font-size: 0.82em;
-}
-
-.data-row-info {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.data-row-title {
-    color: #2c3e50;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.data-row-meta {
-    color: #95a5a6;
-    font-size: 0.85em;
-}
-
-.data-row-emph {
-    color: #1971c2;
-    font-weight: 600;
-    background: rgba(25, 113, 194, 0.08);
-    padding: 1px 6px;
-    border-radius: 3px;
-    margin: 0 2px;
-    cursor: help;
-}
-
-.data-row-actions {
-    display: flex;
-    gap: 4px;
-    flex-shrink: 0;
-}
-
-.data-row-btn {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    cursor: pointer;
-    padding: 4px 6px;
-    font-size: 0.9em;
-    color: #7f8c8d;
-    transition: all 0.15s ease;
-}
-
-.data-row-btn:hover {
-    background: #ecf0f1;
-    color: #2c3e50;
-}
-
-.data-row-btn.is-danger:hover {
-    background: #fde8e8;
-    color: #c0392b;
-}
-
-.data-actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-
-.data-action-btn {
-    flex: 1 1 auto;
-    min-width: 0;
-    padding: 6px 10px;
-    background: #ecf0f1;
-    color: #2c3e50;
-    border: 1px solid #d5dbdb;
-    border-radius: 5px;
-    font-size: 0.78em;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.data-action-btn:hover:not(:disabled) {
-    background: #d6dbdf;
-}
-
-.data-action-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
-.data-action-btn.data-action-danger {
-    background: #fadbd8;
-    color: #922b21;
-    border-color: #f1948a;
-}
-
-.data-action-btn.data-action-danger:hover:not(:disabled) {
-    background: #f5b7b1;
-}
-
 /* 侧边栏：参数配置、算法选择、操作控制 */
 .sidebar {
     display: flex;
@@ -1087,12 +867,6 @@ body {
     font-size: 1.6em;
     margin-bottom: 4px;
     font-weight: 700;
-}
-
-.page-subtitle {
-    color: #7f8c8d;
-    font-size: 0.9em;
-    border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 /* 控制组：参数配置、算法选择、操作控制 */
@@ -1354,13 +1128,6 @@ body {
     border-radius: 6px;
 }
 
-/* 算法选择 */
-.algorithm-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(75px, 1fr));
-    gap: 4px;
-}
-
 /* ==================== 算法分类（次要分类） ==================== */
 .algo-category-list {
     display: flex;
@@ -1392,12 +1159,6 @@ body {
 
 .algo-cat-header:hover {
     background: #e7f5ff;
-}
-
-.algo-cat-icon {
-    font-size: 1.1em;
-    width: 18px;
-    text-align: center;
 }
 
 .algo-cat-name {
@@ -1860,10 +1621,6 @@ body {
         font-size: 1.3em;
         margin-bottom: 2px;
     }
-
-    .page-subtitle {
-        display: none;
-    }
 }
 
 /* 视口更矮时：压缩控件内边距与按钮，给侧边栏更多空间 */
@@ -1948,10 +1705,6 @@ body {
 
 @media (max-width: 480px) {
     .stats-bar {
-        grid-template-columns: 1fr;
-    }
-
-    .algorithm-grid {
         grid-template-columns: 1fr;
     }
 }

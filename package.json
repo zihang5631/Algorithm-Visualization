@@ -59,7 +59,9 @@
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "signingHashAlgorithms": [],
@@ -73,5 +75,8 @@
     "linux": {
       "target": "AppImage"
     }
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.2"
   }
 }

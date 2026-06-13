@@ -9,14 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   chooseDirectory: (defaultPath) => ipcRenderer.invoke('choose-directory', defaultPath),
   chooseSaveFile: (opts) => ipcRenderer.invoke('choose-save-file', opts),
   confirmDialog: (opts) => ipcRenderer.invoke('confirm-dialog', opts),
-  writeFile: (payload) => ipcRenderer.invoke('write-file', payload),
-  requestQuit: () => ipcRenderer.invoke('request-quit'),
   listHistory: (opts) => ipcRenderer.invoke('list-history', opts),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
-  deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
-  onUpdateStats: (callback) => ipcRenderer.on('update-stats', callback),
-  onRequestCloseConfirm: (callback) => ipcRenderer.on('request-close-confirm', callback),
-  sendCloseConfirmResult: (confirmed) => ipcRenderer.send('confirm-close-result', confirmed)
+  deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath)
 });
 
 contextBridge.exposeInMainWorld('appLogger', {

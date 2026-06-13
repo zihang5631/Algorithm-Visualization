@@ -13,6 +13,9 @@ class SortingVisualizer {
         this.swaps = 0;
         this.sortSteps = [];
         this.currentStep = 0;
+        // 调试开关：仅当 localStorage.ALGO_VIZ_DEBUG=1 时启用 IPC/路径详细日志
+        this.debug = (typeof localStorage !== 'undefined') && (localStorage.getItem('ALGO_VIZ_DEBUG') === '1');
+        this._previewLimit = 200;
         this.sessionData = [];        // 本会话内每次"启动排序"产生的运行记录
         this.unsavedCount = 0;        // 尚未持久化到磁盘的运行条数
         this.elapsedMs = 0;           // 当前排序累计"运行时间"（毫秒，自动播放时间，单步模式暂停不计时）
@@ -35,8 +38,53 @@ class SortingVisualizer {
         // 初始控件状态：未在排序中 → 数组大小/生成新数组按钮可用
         this.updateControlsState();
         // 初始图表切换按钮状态（默认柱状图）
+
         this.updateChartTypeToggleUI();
     }
+
+    // 渲染端日志：在 DevTools 控制台打印，主进程日志在终端。
+    // 触发条件：浏览器里执行 `localStorage.setItem('ALGO_VIZ_DEBUG','1')` 后刷新。
+    _log(tag, payload) {
+        if (!this.debug) return;
+        try {
+            const time = new Date().toISOString();
+            const safe = this._safeClone(payload);
+            console.log(`[ALGO-VIZ ${time}] [renderer][${tag}]`, safe);
+        } catch (e) { /* ignore */ }
+    }
+    _safeClone(v) {
+        try { return JSON.parse(JSON.stringify(v, (k, val) => {
+            if (typeof val === 'string' && val.length > this._previewLimit) {
+                return val.slice(0, this._previewLimit) + `...(truncated, total ${val.length} chars)`;
+            }
+            return val;
+        })); } catch (e) { return '[unserializable]'; }
+    }
+
+    // ==================== IPC 包装层 ====================
+    // 集中所有 electronAPI 调用，统一打日志和异常包装。
+    // 在 DEBUG 开启时，会在 DevTools 看到 [ALGO-VIZ ...][renderer][ipc:xxx]
+    async _ipc(name, fn, args) {
+        const t0 = Date.now();
+        this._log(`ipc:${name}:enter`, { args: args === undefined ? null : args });
+        try {
+            const result = await fn();
+            this._log(`ipc:${name}:done`, { elapsedMs: Date.now() - t0, result });
+            return result;
+        } catch (e) {
+            this._log(`ipc:${name}:error`, { elapsedMs: Date.now() - t0, message: e && e.message });
+            throw e;
+        }
+    }
+    ipcSaveData(payload)     { return this._ipc('saveData', () => window.electronAPI.saveData(payload), { payload }); }
+    ipcExportCSV(payload)    { return this._ipc('exportCSV', () => window.electronAPI.exportCSV(payload), { payload }); }
+    ipcGetSettings()         { return this._ipc('getSettings', () => window.electronAPI.getSettings()); }
+    ipcSaveSettings(s)       { return this._ipc('saveSettings', () => window.electronAPI.saveSettings(s), { s }); }
+    ipcChooseDirectory(p)    { return this._ipc('chooseDirectory', () => window.electronAPI.chooseDirectory(p), { defaultPath: p }); }
+    ipcChooseSaveFile(o)     { return this._ipc('chooseSaveFile', () => window.electronAPI.chooseSaveFile(o), { opts: o }); }
+    ipcListHistory(o)        { return this._ipc('listHistory', () => window.electronAPI.listHistory(o), { opts: o }); }
+    ipcReadFile(p)           { return this._ipc('readFile', () => window.electronAPI.readFile(p), { filePath: p }); }
+    ipcDeleteFile(p)         { return this._ipc('deleteFile', () => window.electronAPI.deleteFile(p), { filePath: p }); }
 
     initializeElements() {
         this.barsContainer = document.getElementById('barsContainer');
@@ -63,7 +111,7 @@ class SortingVisualizer {
         this.generateArrayBtn = document.getElementById('generateArray');
 
         this.exportDataBtn = document.getElementById('exportData');
-        this.saveSessionBtn = document.getElementById('saveSession');
+        this.saveDataBtn = document.getElementById('saveDataBtn');
         this.appInfoBtn = document.getElementById('appInfo');
         this.appSettingsBtn = document.getElementById('appSettings');
 
@@ -1699,8 +1747,8 @@ class SortingVisualizer {
             this.exportDataBtn.addEventListener('click', () => this.exportData());
         }
 
-        if (this.saveSessionBtn) {
-            this.saveSessionBtn.addEventListener('click', () => this.saveSession());
+        if (this.saveDataBtn) {
+            this.saveDataBtn.addEventListener('click', () => this.saveData());
         }
 
         // 数据页：一键保存所有未保存 + dirty hint 链接
@@ -1906,7 +1954,7 @@ class SortingVisualizer {
         if (key === 'defaultExportPath' && this.defaultExportPathInput) this.defaultExportPathInput.value = picked;
     }
 
-    // 把保存/导出路径重置为"文档/Algorithm-Visualization"（Electron 端默认）
+    // 把保存/导出路径重置为"文档/algo-viz"（Electron 端默认）
     async resetPathsToDefault() {
         if (!window.electronAPI || !window.electronAPI.saveSettings || !window.electronAPI.getSettings) {
             alert('当前环境不支持重置');
@@ -1991,9 +2039,11 @@ class SortingVisualizer {
         this.leftRailTabs.forEach(tab => {
             tab.classList.toggle('is-active', tab.dataset.railTab === name);
         });
-        if (this.mainLayout) {
-            this.mainLayout.classList.toggle('is-data-mode', name === 'data');
-        }
+        // 直接通过 hidden 属性控制可见性，不依赖 CSS class —— 避免任何
+        // 外部样式（自定义皮肤/扩展等）覆盖导致主区域未正确隐藏
+        document.querySelectorAll('.algo-test-item').forEach(el => {
+            el.hidden = (name === 'data');
+        });
         if (this.dataPage) this.dataPage.hidden = (name !== 'data');
         if (name === 'data') {
             this.renderDataPage();
@@ -2003,8 +2053,9 @@ class SortingVisualizer {
     // 启动时 + 设置变更后调用：从默认保存目录读历史文件
     async loadHistoryFromDefaultPath() {
         if (!window.electronAPI || !window.electronAPI.listHistory) return;
+        this._log('loadHistory:enter', { hasAPI: true });
         try {
-            const result = await window.electronAPI.listHistory();
+            const result = await this.ipcListHistory();
             this.historyItems = (result && result.items) || [];
             // 解析已保存的 session 文件为可读运行记录
             // 关键：保留已经在 savedRuns 中存在的引用（避免重读失败时丢失刚保存的 run）
@@ -2023,7 +2074,7 @@ class SortingVisualizer {
                 }
                 if (!window.electronAPI.readFile) break;
                 try {
-                    const content = await window.electronAPI.readFile(item.filePath);
+                    const content = await this.ipcReadFile(item.filePath);
                     const parsed = JSON.parse(content);
                     // session 文件结构：{ runs: [...] } 或单条 run
                     const runs = Array.isArray(parsed.runs) ? parsed.runs : [parsed];
@@ -2289,9 +2340,10 @@ class SortingVisualizer {
         this.unsavedCount = this.sessionData.length;
         if (this.sessionRunCountEl) this.sessionRunCountEl.textContent = String(this.sessionData.length);
         // 3) 磁盘文件删除（先全部在内存清掉再统一删磁盘，避免 UI 残留）
+        this._log('deleteRuns:enter', { filePaths: Array.from(filePaths) });
         for (const fp of filePaths) {
             try {
-                await window.electronAPI.deleteFile(fp);
+                await this.ipcDeleteFile(fp);
             } catch (e) {
                 console.error('删除文件失败:', fp, e);
             }
@@ -2356,8 +2408,9 @@ class SortingVisualizer {
 
     // 区间柱状图：以数组大小为 x 轴按 10 一桶分桶，其他参数为 y 轴，柱高 = 该桶内 y 的平均值
     // hover 柱 → 浮动 tip 列出该桶内所有文件 / 数组大小 / 数值
+    // 视图尺寸 W×H（坐标映射不变，仅画布变大）
     buildIntervalBarChart(title, items, xField, yField, color) {
-        const W = 280, H = 140, P = 28;
+        const W = 460, H = 240, P = 40;
         // 单元测试 mock 环境 fallback
         if (typeof document.createElementNS !== 'function') {
             const div = document.createElement('div');
@@ -2410,7 +2463,7 @@ class SortingVisualizer {
 
         // 计算聚合：y 平均；yMax 取所有非空桶平均的最大值
         const yMax = Math.max(1, ...buckets.filter(b => b.runs.length > 0).map(b => b.runs.reduce((a, p) => a + p.y, 0) / b.runs.length));
-        const chartTop = 6, chartBottom = H - P, chartHeight = chartBottom - chartTop;
+        const chartTop = 12, chartBottom = H - P, chartHeight = chartBottom - chartTop;
         const barWidth = (W - P - 8) / BINS.length;
         // 网格
         const grid = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -2433,17 +2486,17 @@ class SortingVisualizer {
         // 0 / yMax 刻度文字
         const yZero = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         yZero.setAttribute('x', String(P - 4));
-        yZero.setAttribute('y', String(chartBottom + 10));
+        yZero.setAttribute('y', String(chartBottom + 14));
         yZero.setAttribute('text-anchor', 'end');
-        yZero.setAttribute('font-size', '9');
+        yZero.setAttribute('font-size', '12');
         yZero.setAttribute('fill', '#adb5bd');
         yZero.textContent = '0';
         grid.appendChild(yZero);
         const yTop = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         yTop.setAttribute('x', String(P - 4));
-        yTop.setAttribute('y', String(chartTop + 8));
+        yTop.setAttribute('y', String(chartTop + 11));
         yTop.setAttribute('text-anchor', 'end');
-        yTop.setAttribute('font-size', '9');
+        yTop.setAttribute('font-size', '12');
         yTop.setAttribute('fill', '#adb5bd');
         yTop.textContent = this.fmtNum(yMax);
         grid.appendChild(yTop);
@@ -2512,12 +2565,12 @@ class SortingVisualizer {
             });
             svg.appendChild(rect);
             // 顶部数值标签
-            if (hBar > 12) {
+            if (hBar > 18) {
                 const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 lbl.setAttribute('x', (x + w / 2).toFixed(1));
-                lbl.setAttribute('y', Math.max(chartTop + 9, y - 2).toFixed(1));
+                lbl.setAttribute('y', Math.max(chartTop + 14, y - 4).toFixed(1));
                 lbl.setAttribute('text-anchor', 'middle');
-                lbl.setAttribute('font-size', '8');
+                lbl.setAttribute('font-size', '12');
                 lbl.setAttribute('fill', '#495057');
                 lbl.textContent = this.fmtNum(avg);
                 svg.appendChild(lbl);
@@ -2526,9 +2579,9 @@ class SortingVisualizer {
             if (i % 2 === 0) {     // 隔一个标避免拥挤
                 const xlbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 xlbl.setAttribute('x', (x + w / 2).toFixed(1));
-                xlbl.setAttribute('y', String(chartBottom + 11));
+                xlbl.setAttribute('y', String(chartBottom + 16));
                 xlbl.setAttribute('text-anchor', 'middle');
-                xlbl.setAttribute('font-size', '7.5');
+                xlbl.setAttribute('font-size', '11');
                 xlbl.setAttribute('fill', '#adb5bd');
                 xlbl.textContent = b.label;
                 svg.appendChild(xlbl);
@@ -2567,8 +2620,9 @@ class SortingVisualizer {
 
     // 散点图：x=数组大小，y=某指标；点与点之间不连线
     // 与 buildIntervalBarChart 接口一致，便于同一调用点切换
+    // 视图尺寸 W×H（坐标映射不变，仅画布变大）
     buildScatterSVG(title, items, xField, yField, color) {
-        const W = 280, H = 140, P = 28;
+        const W = 460, H = 240, P = 40;
         // 单元测试 mock 环境 fallback
         if (typeof document.createElementNS !== 'function') {
             const div = document.createElement('div');
@@ -2603,7 +2657,7 @@ class SortingVisualizer {
         const maxXRaw = Math.max(1, ...valid.map(p => p.x));
         const xMax = Math.max(10, Math.ceil(maxXRaw / 10) * 10);
         const yMax = Math.max(1, ...valid.map(p => p.y));
-        const chartTop = 6, chartBottom = H - P, chartLeft = P, chartRight = W - 4;
+        const chartTop = 12, chartBottom = H - P, chartLeft = P, chartRight = W - 4;
         const chartW = chartRight - chartLeft;
         const chartH = chartBottom - chartTop;
         const xToPx = (x) => chartLeft + Math.min(1, x / xMax) * chartW;
@@ -2630,34 +2684,34 @@ class SortingVisualizer {
         // y 刻度文字
         const yZero = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         yZero.setAttribute('x', String(chartLeft - 4));
-        yZero.setAttribute('y', String(chartBottom + 10));
+        yZero.setAttribute('y', String(chartBottom + 14));
         yZero.setAttribute('text-anchor', 'end');
-        yZero.setAttribute('font-size', '9');
+        yZero.setAttribute('font-size', '12');
         yZero.setAttribute('fill', '#adb5bd');
         yZero.textContent = '0';
         grid.appendChild(yZero);
         const yTop = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         yTop.setAttribute('x', String(chartLeft - 4));
-        yTop.setAttribute('y', String(chartTop + 8));
+        yTop.setAttribute('y', String(chartTop + 11));
         yTop.setAttribute('text-anchor', 'end');
-        yTop.setAttribute('font-size', '9');
+        yTop.setAttribute('font-size', '12');
         yTop.setAttribute('fill', '#adb5bd');
         yTop.textContent = this.fmtNum(yMax);
         grid.appendChild(yTop);
         // x 刻度文字（仅两端）
         const xStart = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         xStart.setAttribute('x', String(chartLeft));
-        xStart.setAttribute('y', String(chartBottom + 11));
+        xStart.setAttribute('y', String(chartBottom + 16));
         xStart.setAttribute('text-anchor', 'start');
-        xStart.setAttribute('font-size', '8');
+        xStart.setAttribute('font-size', '11');
         xStart.setAttribute('fill', '#adb5bd');
         xStart.textContent = '0';
         grid.appendChild(xStart);
         const xEnd = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         xEnd.setAttribute('x', String(chartRight));
-        xEnd.setAttribute('y', String(chartBottom + 11));
+        xEnd.setAttribute('y', String(chartBottom + 16));
         xEnd.setAttribute('text-anchor', 'end');
-        xEnd.setAttribute('font-size', '8');
+        xEnd.setAttribute('font-size', '11');
         xEnd.setAttribute('fill', '#adb5bd');
         xEnd.textContent = this.fmtNum(xMax);
         grid.appendChild(xEnd);
@@ -2973,9 +3027,10 @@ class SortingVisualizer {
     async saveOneUnsaved(idx) {
         if (idx < 0 || idx >= this.sessionData.length) return;
         if (!window.electronAPI || !window.electronAPI.saveData) return;
+        this._log('saveOneUnsaved:enter', { idx });
         try {
             const run = this.sessionData[idx];
-            const savedPath = await window.electronAPI.saveData({ data: run });
+            const savedPath = await this.ipcSaveData({ data: run });
             // 保存成功后从 sessionData 移除（数据已落到磁盘）
             this.sessionData.splice(idx, 1);
             this.unsavedCount = this.sessionData.length;
@@ -3023,9 +3078,10 @@ class SortingVisualizer {
 
         let success = 0, fail = 0;
         const toSave = [...this.sessionData];
+        this._log('saveAllUnsaved:enter', { count: toSave.length });
         for (const run of toSave) {
             try {
-                const savedPath = await window.electronAPI.saveData({ data: run });
+                const savedPath = await this.ipcSaveData({ data: run });
                 run.__saved = true;
                 run.__savedPath = savedPath;
                 run.__source = 'saved';
@@ -3096,7 +3152,7 @@ class SortingVisualizer {
         });
         if (ok !== 0) return;
         try {
-            await window.electronAPI.deleteFile(filePath);
+            await this.ipcDeleteFile(filePath);
             // 关键：磁盘已删，立即从内存中过滤掉对应 run，
             // 否则 merge 模式会把 stale 引用保留下来，"已删除"文件又显示在 UI 上
             this.savedRuns = this.savedRuns.filter(r => r.__filePath !== filePath);
@@ -3115,8 +3171,9 @@ class SortingVisualizer {
         if (!window.electronAPI || !window.electronAPI.readFile) return;
         const item = (this.historyItems || []).find(x => x.name === fileName);
         if (!item) return;
+        this._log('viewHistory:enter', { fileName, filePath: item.filePath });
         try {
-            const content = await window.electronAPI.readFile(item.filePath);
+            const content = await this.ipcReadFile(item.filePath);
             let parsed;
             try { parsed = JSON.parse(content); } catch { parsed = null; }
             const runs = (parsed && Array.isArray(parsed.runs)) ? parsed.runs
@@ -3480,7 +3537,7 @@ class SortingVisualizer {
         });
         if (ok !== 0) return;
         try {
-            await window.electronAPI.deleteFile(item.filePath);
+            await this.ipcDeleteFile(item.filePath);
             // 关键：先从 savedRuns 过滤掉同文件路径的 run，避免 stale 残留
             this.savedRuns = this.savedRuns.filter(r => r.__filePath !== item.filePath);
             this.loadHistoryFromDefaultPath().catch(e => console.warn('刷新历史失败：', e));
@@ -3494,8 +3551,9 @@ class SortingVisualizer {
 
     async readHistoryFile(filePath) {
         if (!window.electronAPI || !window.electronAPI.readFile) return;
+        this._log('readHistoryFile:enter', { filePath });
         try {
-            const content = await window.electronAPI.readFile(filePath);
+            const content = await this.ipcReadFile(filePath);
             // 简化：弹窗显示前 2000 字符
             alert(`📄 ${filePath}\n\n${String(content).slice(0, 2000)}${String(content).length > 2000 ? '\n\n…(截断显示)' : ''}`);
         } catch (e) {
@@ -3514,6 +3572,11 @@ class SortingVisualizer {
     }
 
     async exportDataWithContent(csvContent) {
+        this._log('exportDataWithContent:enter', {
+            csvLength: csvContent ? csvContent.length : 0,
+            defaultExportPath: this.appSettings.defaultExportPath,
+            defaultSavePath: this.appSettings.defaultSavePath
+        });
         try {
             let filePath = null;
             // 询问保存路径
@@ -3521,18 +3584,18 @@ class SortingVisualizer {
                 const dir = this.appSettings.defaultExportPath || this.appSettings.defaultSavePath || '';
                 const sep = (dir && /[\\/]$/.test(dir)) ? '' : (dir ? '/' : '');
                 const defaultPath = (dir ? dir + sep : '') + `sorting_stats_${Date.now()}.csv`;
-                filePath = await window.electronAPI.chooseSaveFile({
+                filePath = await this.ipcChooseSaveFile({
                     title: '导出 CSV',
                     defaultPath,
                     filters: [{ name: 'CSV', extensions: ['csv'] }]
                 });
             }
             if (filePath && window.electronAPI && window.electronAPI.exportCSV) {
-                await window.electronAPI.exportCSV({ csvData: csvContent, filePath });
+                await this.ipcExportCSV({ csvData: csvContent, filePath });
                 alert('已导出: ' + filePath);
             } else if (window.electronAPI && window.electronAPI.exportCSV) {
                 // 用户取消：用默认路径
-                const saved = await window.electronAPI.exportCSV({ csvData: csvContent });
+                const saved = await this.ipcExportCSV({ csvData: csvContent });
                 alert('已导出到默认路径: ' + saved);
             } else {
                 this.downloadCSV(csvContent, `sorting_stats_${Date.now()}.csv`);
@@ -3544,7 +3607,7 @@ class SortingVisualizer {
     }
 
     // ==================== 保存/导出（含询问） ====================
-    async saveSession() {
+    async saveData() {
         // 询问：是否有数据
         if (this.sessionData.length === 0) {
             alert('当前会话内尚无运行数据。');
@@ -3553,7 +3616,7 @@ class SortingVisualizer {
         // 询问：是否保存
         const ask = await this.confirm({
             type: 'info',
-            title: '保存会话',
+            title: '保存数据',
             message: `当前会话共有 ${this.sessionData.length} 条运行记录，${this.unsavedCount} 条未保存。`,
             detail: '点击"保存"将弹出文件选择对话框。',
             buttons: ['保存', '取消'],
@@ -3565,7 +3628,7 @@ class SortingVisualizer {
         // 询问：保存路径
         const defaultDir = this.appSettings.defaultSavePath || '';
         const filePath = await this.pickSaveFilePath({
-            title: '保存会话',
+            title: '保存数据',
             defaultDir,
             defaultName: `session_${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
             filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -3577,10 +3640,15 @@ class SortingVisualizer {
             exportedAt: new Date().toISOString(),
             runs: this.sessionData
         };
+        this._log('saveData:enter', {
+            filePath,
+            runs: this.sessionData.length,
+            unsavedCount: this.unsavedCount
+        });
         try {
             let savedPath;
             if (window.electronAPI && window.electronAPI.saveData) {
-                savedPath = await window.electronAPI.saveData({ data: sessionData, filePath });
+                savedPath = await this.ipcSaveData({ data: sessionData, filePath });
             } else {
                 this.downloadFile(JSON.stringify(sessionData, null, 2), 'sorting_session.json', 'application/json');
                 savedPath = 'sorting_session.json';
@@ -3592,10 +3660,10 @@ class SortingVisualizer {
             if (this.sessionRunCountEl) this.sessionRunCountEl.textContent = '0';
             await this.loadHistoryFromDefaultPath();
             this.updateDirtyHint();
-            alert(`会话已保存到:\n${savedPath}`);
+            alert(`数据已保存到:\n${savedPath}`);
         } catch (e) {
-            console.error('保存会话失败:', e);
-            alert('保存会话失败: ' + e.message);
+            console.error('保存数据失败:', e);
+            alert('保存数据失败: ' + e.message);
         }
     }
 
@@ -3630,7 +3698,7 @@ class SortingVisualizer {
             const csvContent = this.generateCSV();
             let savedPath;
             if (window.electronAPI && window.electronAPI.exportCSV) {
-                savedPath = await window.electronAPI.exportCSV({ csvData: csvContent, filePath });
+                savedPath = await this.ipcExportCSV({ csvData: csvContent, filePath });
             } else {
                 this.downloadCSV(csvContent, 'sorting_stats.csv');
                 savedPath = 'sorting_stats.csv';
@@ -3718,11 +3786,15 @@ class SortingVisualizer {
         return [headers.join(','), ...rows].join('\n');
     }
     
+    // 浏览器降级路径（无 electronAPI 时）的 CSV 下载：
+    // 用 UTF-8 + BOM 写出。MIME 声明 utf-8；BOM 让 Excel 记事本按 UTF-8 识别，
+    // 避免误标 GBK 导致乱码。在 Electron 环境中，导出走 main.js 的 iconv-lite GBK 路径。
     downloadCSV(csvContent, filename) {
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const BOM = '\uFEFF';
+        const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
-        
+
         link.setAttribute('href', url);
         link.setAttribute('download', filename);
         link.style.visibility = 'hidden';
@@ -3837,15 +3909,10 @@ class SortingVisualizer {
     }
 
     // ==================== 退出/卸载守卫 ====================
-    // 关闭页面前：如果有未保存的运行数据，弹出确认
+    // 关闭拦截已完全在主进程内完成（main.js 的 close 事件），不再通过 IPC 询问渲染端，
+    // 避免 IPC 竞态导致"卡住"现象。
+    // 这里仅保留浏览器刷新/导航场景的 beforeunload 提示。
     attachWindowUnloadGuard() {
-        // Electron 主进程拦截了 close 事件，通过 IPC 主动询问
-        if (window.electronAPI && window.electronAPI.onRequestCloseConfirm) {
-            window.electronAPI.onRequestCloseConfirm(() => {
-                this.handleCloseRequest();
-            });
-        }
-        // 兼容浏览器刷新/导航场景
         window.addEventListener('beforeunload', (e) => {
             if (this.unsavedCount > 0) {
                 e.preventDefault();
@@ -3853,46 +3920,6 @@ class SortingVisualizer {
                 return e.returnValue;
             }
         });
-    }
-
-    // 处理来自主进程的关闭请求：未保存时弹确认框
-    async handleCloseRequest() {
-        const sendResult = (val) => {
-            try { window.electronAPI.sendCloseConfirmResult(val); } catch (e) {}
-        };
-        if (this._closeDialogShowing) {
-            // 防止重复弹出：当前一个对话框未关闭时，后续 close 请求都视为"返回"
-            sendResult(false);
-            return;
-        }
-        if (this.unsavedCount > 0) {
-            const detail = (this.unsavedCount === 1)
-                ? '当前会话还有 1 条未保存的运行数据，关闭后不会保存到磁盘。'
-                : `当前会话还有 ${this.unsavedCount} 条未保存的运行数据，关闭后不会保存到磁盘。`;
-            let result = -1;
-            this._closeDialogShowing = true;
-            try {
-                result = await window.electronAPI.confirmDialog({
-                    type: 'warning',
-                    title: '未保存的运行记录',
-                    message: `有 ${this.unsavedCount} 条未保存的运行记录`,
-                    detail: detail,
-                    buttons: ['返回', '放弃并退出'],
-                    defaultId: 0,
-                    cancelId: 0
-                });
-            } catch (e) {
-                // 极端情况下回退到浏览器确认
-                result = window.confirm(detail + '\n确定要退出吗？') ? 1 : 0;
-            } finally {
-                this._closeDialogShowing = false;
-            }
-            // 用户点 X（result 为 undefined/null）或点"返回"都视为取消
-            // result: 0 = 返回, 1 = 放弃并退出
-            sendResult(result === 1);
-        } else {
-            sendResult(true);
-        }
     }
     
     getSidebarWidth() {
