@@ -1,4 +1,4 @@
-# Algorithm Visualization (排序算法可视化)
+# algo-viz(排序算法可视化)
 
 > 使用 **JavaScript + Electron** 制作的排序算法可视化练手项目，通过动画直观展示各排序算法的执行过程。
 

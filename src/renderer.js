@@ -21,6 +21,7 @@ class SortingVisualizer {
             defaultSavePath: '',
             defaultExportPath: ''
         };
+        this.chartType = 'bar';       // 'bar' | 'scatter'：测试数据页图表类型
 
         this.initializeElements();
         this.loadAppSettings().then(() => this.loadHistoryFromDefaultPath());
@@ -33,6 +34,8 @@ class SortingVisualizer {
         this.attachWindowUnloadGuard();
         // 初始控件状态：未在排序中 → 数组大小/生成新数组按钮可用
         this.updateControlsState();
+        // 初始图表切换按钮状态（默认柱状图）
+        this.updateChartTypeToggleUI();
     }
 
     initializeElements() {
@@ -88,6 +91,8 @@ class SortingVisualizer {
         this.srcCountAllEl = document.getElementById('srcCountAll');
         this.srcCountUnsavedEl = document.getElementById('srcCountUnsaved');
         this.srcCountSavedEl = document.getElementById('srcCountSaved');
+        // 图表类型切换（柱状图 / 散点图）
+        this.chartTypeToggleBtn = document.getElementById('chartTypeToggle');
 
         // 兼容旧引用（可能不再使用，但保留避免未定义）
         this.unsavedListEl = null;
@@ -151,21 +156,27 @@ class SortingVisualizer {
     renderBars() {
         this.barsContainer.innerHTML = '';
         const maxHeight = Math.max(...this.array);
-        
+        // 数组较大时（>40）隐藏柱子下方的数值标签，避免拥挤重叠
+        const showLabels = this.array.length <= 40;
+        // 数组较大时（>60）缩小 bar 之间的间隙，保证视觉清晰
+        const dense = this.array.length > 60;
+
         this.array.forEach((value, index) => {
             const bar = document.createElement('div');
             bar.className = 'bar';
+            if (dense) bar.classList.add('bar-dense');
             bar.style.height = `${(value / maxHeight) * 100}%`;
-            
+
             if (this.sortingComplete) {
                 bar.classList.add('sorted');
             }
-            
-            const valueLabel = document.createElement('div');
-            valueLabel.className = 'bar-label';
-            valueLabel.textContent = value;
-            
-            bar.appendChild(valueLabel);
+
+            if (showLabels) {
+                const valueLabel = document.createElement('div');
+                valueLabel.className = 'bar-label';
+                valueLabel.textContent = value;
+                bar.appendChild(valueLabel);
+            }
             this.barsContainer.appendChild(bar);
         });
     }
@@ -251,14 +262,54 @@ class SortingVisualizer {
         this.arraySizeSlider.addEventListener('input', (e) => {
             if (this.isSorting) return;
             this.arraySize = parseInt(e.target.value);
-            this.sizeValue.textContent = this.arraySize;
+            if (this.sizeValue) this.sizeValue.value = String(this.arraySize);
             this.generateRandomArray();
         });
 
+        // 数组大小：右侧数值输入框（手动输入会夹取到滑条 min/max）
+        if (this.sizeValue) {
+            const handleSizeInput = (commit) => {
+                if (this.isSorting) return;
+                const min = parseInt(this.arraySizeSlider.min) || 5;
+                const max = parseInt(this.arraySizeSlider.max) || 200;
+                let raw = parseInt(this.sizeValue.value, 10);
+                if (!Number.isFinite(raw)) raw = this.arraySize;
+                const clamped = Math.max(min, Math.min(max, raw));
+                this.arraySize = clamped;
+                if (commit || clamped !== raw) {
+                    this.sizeValue.value = String(clamped);
+                }
+                this.arraySizeSlider.value = String(clamped);
+                this.generateRandomArray();
+            };
+            this.sizeValue.addEventListener('input', () => handleSizeInput(false));
+            this.sizeValue.addEventListener('change', () => handleSizeInput(true));
+            this.sizeValue.addEventListener('blur', () => handleSizeInput(true));
+        }
+
         this.sortSpeedSlider.addEventListener('input', (e) => {
             this.speed = parseInt(e.target.value);
-            this.speedValue.textContent = this.speed;
+            if (this.speedValue) this.speedValue.value = String(this.speed);
         });
+
+        // 排序速度：右侧数值输入框（手动输入会夹取到滑条 min/max）
+        if (this.speedValue) {
+            const handleSpeedInput = (commit) => {
+                const min = parseInt(this.sortSpeedSlider.min) || 10;
+                const max = parseInt(this.sortSpeedSlider.max) || 500;
+                let raw = parseInt(this.speedValue.value, 10);
+                if (!Number.isFinite(raw)) raw = this.speed;
+                const clamped = Math.max(min, Math.min(max, raw));
+                this.speed = clamped;
+                if (commit || clamped !== raw) {
+                    this.speedValue.value = String(clamped);
+                }
+                this.sortSpeedSlider.value = String(clamped);
+            };
+            this.speedValue.addEventListener('input', () => handleSpeedInput(false));
+            this.speedValue.addEventListener('change', () => handleSpeedInput(true));
+            this.speedValue.addEventListener('blur', () => handleSpeedInput(true));
+        }
 
         // 随机参数开关（两个独立）
         this.randomArraySizeEl = document.getElementById('randomArraySize');
@@ -449,13 +500,13 @@ class SortingVisualizer {
     // 🎲 随机数组大小（独立开关）
     applyRandomArraySizeIfEnabled() {
         if (!this.randomArraySizeEl || !this.randomArraySizeEl.checked) return;
-        const minS = parseInt(this.arraySizeSlider.min) || 10;
-        const maxS = parseInt(this.arraySizeSlider.max) || 100;
+        const minS = parseInt(this.arraySizeSlider.min) || 5;
+        const maxS = parseInt(this.arraySizeSlider.max) || 200;
         const newSize = Math.floor(Math.random() * (maxS - minS + 1)) + minS;
         const prevSize = this.arraySize;
         this.arraySize = newSize;
         if (this.arraySizeSlider) this.arraySizeSlider.value = String(newSize);
-        if (this.sizeValue) this.sizeValue.textContent = String(newSize);
+        if (this.sizeValue) this.sizeValue.value = String(newSize);
         const sizeDisplay = document.getElementById('arraySizeDisplay');
         if (sizeDisplay) sizeDisplay.textContent = String(newSize);
         // 关键：抽到新 size 后立即按新长度重新生成 this.array。
@@ -479,7 +530,7 @@ class SortingVisualizer {
         const newSpeed = Math.floor(Math.random() * (maxV - minV + 1)) + minV;
         this.speed = newSpeed;
         if (this.sortSpeedSlider) this.sortSpeedSlider.value = String(newSpeed);
-        if (this.speedValue) this.speedValue.textContent = String(newSpeed);
+        if (this.speedValue) this.speedValue.value = String(newSpeed);
     }
 
     // 同步控件的可用状态：排序中禁用数组大小和生成新数组
@@ -489,6 +540,7 @@ class SortingVisualizer {
 
         this.arraySizeSlider.disabled = locked;
         this.generateArrayBtn.disabled = locked;
+        if (this.sizeValue) this.sizeValue.disabled = locked;
 
         this.arraySizeSlider.classList.toggle('is-locked', locked);
         this.generateArrayBtn.classList.toggle('is-locked', locked);
@@ -1660,6 +1712,10 @@ class SortingVisualizer {
                 this.saveAllUnsaved();
             });
         }
+        // 图表类型切换（柱状图 / 散点图）
+        if (this.chartTypeToggleBtn) {
+            this.chartTypeToggleBtn.addEventListener('click', () => this.toggleChartType());
+        }
 
         if (this.appInfoBtn) {
             this.appInfoBtn.addEventListener('click', () => this.showAppInfo());
@@ -2249,8 +2305,9 @@ class SortingVisualizer {
         return '';
     }
 
-    // 散点图容器（纯 SVG，不依赖外部库）
-    // 按数据可用性动态选择图表：缺比较/交换数据时，只显示耗时散点图
+    // 散点图 / 柱状图容器（纯 SVG，不依赖外部库）
+    // 按数据可用性动态选择图表：缺比较/交换数据时，只显示耗时图
+    // 根据 this.chartType 决定使用柱状图或散点图
     renderAlgoScatterCharts(g) {
         const wrap = document.createElement('div');
         wrap.className = 'algo-scatter-wrap';
@@ -2259,9 +2316,10 @@ class SortingVisualizer {
         const hasCmp = items.some(r => Number.isFinite(Number(r.totalComparisons)) && Number(r.totalComparisons) > 0);
         const hasSwp = items.some(r => Number.isFinite(Number(r.totalSwaps)) && Number(r.totalSwaps) > 0);
         const hasElapsed = items.some(r => Number.isFinite(Number(r.elapsedMs)) && Number(r.elapsedMs) > 0);
-        if (hasCmp) wrap.appendChild(this.buildIntervalBarChart('数组大小 vs 比较次数', items, 'arraySize', 'totalComparisons', '#2f9e44'));
-        if (hasSwp) wrap.appendChild(this.buildIntervalBarChart('数组大小 vs 交换次数', items, 'arraySize', 'totalSwaps', '#fa5252'));
-        if (hasElapsed) wrap.appendChild(this.buildIntervalBarChart('数组大小 vs 耗时 (ms)', items, 'arraySize', 'elapsedMs', '#1971c2'));
+        const chartBuilder = this.chartType === 'scatter' ? this.buildScatterSVG : this.buildIntervalBarChart;
+        if (hasCmp) wrap.appendChild(chartBuilder.call(this, 'N 与比较次数', items, 'arraySize', 'totalComparisons', '#2f9e44'));
+        if (hasSwp) wrap.appendChild(chartBuilder.call(this, 'N 与交换次数', items, 'arraySize', 'totalSwaps', '#fa5252'));
+        if (hasElapsed) wrap.appendChild(chartBuilder.call(this, 'N 与耗时 (ms)', items, 'arraySize', 'elapsedMs', '#1971c2'));
         if (!hasCmp && !hasSwp && !hasElapsed) {
             const empty = document.createElement('div');
             empty.className = 'algo-scatter-empty';
@@ -2269,6 +2327,26 @@ class SortingVisualizer {
             wrap.appendChild(empty);
         }
         return wrap;
+    }
+
+    // 切换图表类型（柱状图 ↔ 散点图），并刷新数据页
+    toggleChartType() {
+        this.chartType = this.chartType === 'bar' ? 'scatter' : 'bar';
+        this.updateChartTypeToggleUI();
+        this.renderDataPage();
+    }
+
+    // 同步切换按钮的图标 / 提示
+    updateChartTypeToggleUI() {
+        if (!this.chartTypeToggleBtn) return;
+        const isBar = this.chartType === 'bar';
+        this.chartTypeToggleBtn.setAttribute('data-chart-type', this.chartType);
+        this.chartTypeToggleBtn.setAttribute('title', isBar ? '当前：柱状图（点击切换为散点图）' : '当前：散点图（点击切换为柱状图）');
+        this.chartTypeToggleBtn.setAttribute('aria-label', this.chartTypeToggleBtn.getAttribute('title') || '');
+        const iconEl = this.chartTypeToggleBtn.querySelector('.chart-toggle-icon');
+        const textEl = this.chartTypeToggleBtn.querySelector('.chart-toggle-text');
+        if (iconEl) iconEl.textContent = isBar ? '📊' : '🔵';
+        if (textEl) textEl.textContent = isBar ? '柱状图' : '散点图';
     }
 
     // 区间柱状图：以数组大小为 x 轴按 10 一桶分桶，其他参数为 y 轴，柱高 = 该桶内 y 的平均值
@@ -2305,11 +2383,16 @@ class SortingVisualizer {
             return this._wrapChart(title, svg);
         }
 
-        // 固定 10 区间分桶：[0,10), [10,20), …, [90,100), [100, +∞)
-        const BINS = [
-            [0, 10], [10, 20], [20, 30], [30, 40], [40, 50],
-            [50, 60], [60, 70], [70, 80], [80, 90], [90, 100], [100, Infinity]
-        ];
+        // 10 区间分桶：[0,10), [10,20), …；根据数据中最大的 N 动态生成，最后一桶为 ∞
+        const maxX = Math.max(0, ...valid.map(p => p.x));
+        const binSize = 10;
+        // 上界取 (maxX+binSize) 上取整，确保最后一桶能覆盖到 maxX
+        // 至少预留 2 个桶，避免单桶退化成 [0, ∞)
+        let upper = Math.max(binSize * 2, Math.ceil((maxX + 1) / binSize) * binSize);
+        const BINS = [];
+        for (let lo = 0; lo < upper; lo += binSize) {
+            BINS.push(lo === upper - binSize ? [lo, Infinity] : [lo, lo + binSize]);
+        }
         const buckets = BINS.map(([lo, hi]) => ({
             lo, hi,
             label: hi === Infinity ? `≥${lo}` : `${lo}-${hi}`,
@@ -2324,7 +2407,6 @@ class SortingVisualizer {
         const yMax = Math.max(1, ...buckets.filter(b => b.runs.length > 0).map(b => b.runs.reduce((a, p) => a + p.y, 0) / b.runs.length));
         const chartTop = 6, chartBottom = H - P, chartHeight = chartBottom - chartTop;
         const barWidth = (W - P - 8) / BINS.length;
-
         // 网格
         const grid = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         // x 轴
@@ -2363,24 +2445,45 @@ class SortingVisualizer {
         svg.appendChild(grid);
 
         // 画每根柱
+        // 规则：每根柱的下限 = 该桶内所有文件的 y 最小值，上限 = 平均值
+        // 并在 0 → min 之间画一根淡色"基柱"作为视觉参考
         buckets.forEach((b, i) => {
             if (b.runs.length === 0) return;     // 空桶不画
-            const avg = b.runs.reduce((a, p) => a + p.y, 0) / b.runs.length;
-            const h = (avg / yMax) * chartHeight;
+            const ys = b.runs.map(p => p.y);
+            const avg = ys.reduce((a, v) => a + v, 0) / ys.length;
+            const minY = Math.min(...ys);
+            // 物理坐标：minY 在下、avg 在上（avg 永远 >= min）
+            const topVal = Math.max(avg, minY);
+            const botVal = Math.min(avg, minY);
+            const hBase = (botVal / yMax) * chartHeight;        // 0 → botVal 的高度
+            const hBar = ((topVal - botVal) / yMax) * chartHeight;
             const x = P + i * barWidth + 1.5;
             const w = barWidth - 3;
-            const y = chartBottom - h;
+            // 基柱（淡色 0 → 最小值，仅当最小值 > 0 时才有意义）
+            if (hBase > 0.5) {
+                const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                ghost.setAttribute('x', x.toFixed(1));
+                ghost.setAttribute('y', (chartBottom - hBase).toFixed(1));
+                ghost.setAttribute('width', w.toFixed(1));
+                ghost.setAttribute('height', Math.max(1, hBase).toFixed(1));
+                ghost.setAttribute('fill', color);
+                ghost.setAttribute('opacity', '0.18');
+                ghost.setAttribute('class', 'algo-bar-ghost');
+                svg.appendChild(ghost);
+            }
+            // 主柱：minY → avg
+            const y = chartBottom - hBase - hBar;
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             rect.setAttribute('x', x.toFixed(1));
             rect.setAttribute('y', y.toFixed(1));
             rect.setAttribute('width', w.toFixed(1));
-            rect.setAttribute('height', Math.max(1, h).toFixed(1));
+            rect.setAttribute('height', Math.max(1, hBar).toFixed(1));
             rect.setAttribute('fill', color);
             rect.setAttribute('opacity', '0.85');
             rect.setAttribute('class', 'algo-bar-rect');
             rect.setAttribute('data-bin-index', String(i));
             // SVG <title> 元素用于原生 tooltip（hover 即出现）
-            const tipText = this._formatBinTip(b, yField, avg);
+            const tipText = this._formatBinTip(b, yField, avg, minY);
             const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
             t.textContent = tipText;
             rect.appendChild(t);
@@ -2404,7 +2507,7 @@ class SortingVisualizer {
             });
             svg.appendChild(rect);
             // 顶部数值标签
-            if (h > 12) {
+            if (hBar > 12) {
                 const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 lbl.setAttribute('x', (x + w / 2).toFixed(1));
                 lbl.setAttribute('y', Math.max(chartTop + 9, y - 2).toFixed(1));
@@ -2442,9 +2545,12 @@ class SortingVisualizer {
         return chartWrap;
     }
 
-    // 辅助：格式化柱的 tooltip 文本
-    _formatBinTip(b, yField, avg) {
-        const lines = [`区间 ${b.label} · 共 ${b.runs.length} 条 · 平均 ${yField}=${this.fmtNum(avg)}`];
+    // 辅助：格式化柱的 tooltip 文本（含 min / avg）
+    _formatBinTip(b, yField, avg, minY) {
+        const head = minY != null
+            ? `区间 ${b.label} · 共 ${b.runs.length} 条 · 最小 ${this.fmtNum(minY)} · 平均 ${this.fmtNum(avg)}`
+            : `区间 ${b.label} · 共 ${b.runs.length} 条 · 平均 ${this.fmtNum(avg)}`;
+        const lines = [head];
         b.runs.forEach((p, i) => {
             const algo = this.prettyAlgoName(p.r.algorithm || '');
             const fn = p.r.__fileName || '—';
@@ -2452,6 +2558,147 @@ class SortingVisualizer {
             lines.push(`   📁 ${fn}`);
         });
         return lines.join('\n');
+    }
+
+    // 散点图：x=数组大小，y=某指标；点与点之间不连线
+    // 与 buildIntervalBarChart 接口一致，便于同一调用点切换
+    buildScatterSVG(title, items, xField, yField, color) {
+        const W = 280, H = 140, P = 28;
+        // 单元测试 mock 环境 fallback
+        if (typeof document.createElementNS !== 'function') {
+            const div = document.createElement('div');
+            div.className = 'algo-scatter-svg algo-scatter-mock';
+            div.textContent = `[mock] ${title} items=${items.length}`;
+            return div;
+        }
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+        svg.setAttribute('class', 'algo-scatter-svg algo-scatter-svg-only');
+        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+        // 过滤掉 y 无效的项
+        const valid = items.map(r => ({
+            r,
+            x: Number(r[xField]) || 0,
+            y: Number(r[yField]) || 0
+        })).filter(p => Number.isFinite(p.y));
+        if (valid.length === 0) {
+            const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            t.setAttribute('x', String(W / 2));
+            t.setAttribute('y', String(H / 2));
+            t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('font-size', '11');
+            t.setAttribute('fill', '#adb5bd');
+            t.textContent = '无有效数据';
+            svg.appendChild(t);
+            return this._wrapChart(title, svg);
+        }
+
+        // 坐标范围：x 0..ceil(maxX/10)*10（向上取整到 10 倍数），y 0..maxY
+        const maxXRaw = Math.max(1, ...valid.map(p => p.x));
+        const xMax = Math.max(10, Math.ceil(maxXRaw / 10) * 10);
+        const yMax = Math.max(1, ...valid.map(p => p.y));
+        const chartTop = 6, chartBottom = H - P, chartLeft = P, chartRight = W - 4;
+        const chartW = chartRight - chartLeft;
+        const chartH = chartBottom - chartTop;
+        const xToPx = (x) => chartLeft + Math.min(1, x / xMax) * chartW;
+        const yToPx = (y) => chartBottom - Math.min(1, y / yMax) * chartH;
+
+        // 网格（轴 + 0/中段/顶 刻度文字）
+        const grid = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        // x 轴
+        const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        xAxis.setAttribute('x1', String(chartLeft));
+        xAxis.setAttribute('y1', String(chartBottom));
+        xAxis.setAttribute('x2', String(chartRight));
+        xAxis.setAttribute('y2', String(chartBottom));
+        xAxis.setAttribute('stroke', '#dee2e6');
+        grid.appendChild(xAxis);
+        // y 轴
+        const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        yAxis.setAttribute('x1', String(chartLeft));
+        yAxis.setAttribute('y1', String(chartTop));
+        yAxis.setAttribute('x2', String(chartLeft));
+        yAxis.setAttribute('y2', String(chartBottom));
+        yAxis.setAttribute('stroke', '#dee2e6');
+        grid.appendChild(yAxis);
+        // y 刻度文字
+        const yZero = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        yZero.setAttribute('x', String(chartLeft - 4));
+        yZero.setAttribute('y', String(chartBottom + 10));
+        yZero.setAttribute('text-anchor', 'end');
+        yZero.setAttribute('font-size', '9');
+        yZero.setAttribute('fill', '#adb5bd');
+        yZero.textContent = '0';
+        grid.appendChild(yZero);
+        const yTop = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        yTop.setAttribute('x', String(chartLeft - 4));
+        yTop.setAttribute('y', String(chartTop + 8));
+        yTop.setAttribute('text-anchor', 'end');
+        yTop.setAttribute('font-size', '9');
+        yTop.setAttribute('fill', '#adb5bd');
+        yTop.textContent = this.fmtNum(yMax);
+        grid.appendChild(yTop);
+        // x 刻度文字（仅两端）
+        const xStart = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        xStart.setAttribute('x', String(chartLeft));
+        xStart.setAttribute('y', String(chartBottom + 11));
+        xStart.setAttribute('text-anchor', 'start');
+        xStart.setAttribute('font-size', '8');
+        xStart.setAttribute('fill', '#adb5bd');
+        xStart.textContent = '0';
+        grid.appendChild(xStart);
+        const xEnd = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        xEnd.setAttribute('x', String(chartRight));
+        xEnd.setAttribute('y', String(chartBottom + 11));
+        xEnd.setAttribute('text-anchor', 'end');
+        xEnd.setAttribute('font-size', '8');
+        xEnd.setAttribute('fill', '#adb5bd');
+        xEnd.textContent = this.fmtNum(xMax);
+        grid.appendChild(xEnd);
+        svg.appendChild(grid);
+
+        // 散点：每个点独立绘制，不连线
+        valid.forEach((p) => {
+            const cx = xToPx(p.x);
+            const cy = yToPx(p.y);
+            const algo = this.prettyAlgoName(p.r.algorithm || '');
+            const fn = p.r.__fileName || '—';
+            const tipText = `#${valid.indexOf(p) + 1} ${algo}  N=${p.x}  ${yField}=${this.fmtNum(p.y)}  ⏱${this.formatElapsed(p.r.elapsedMs || 0)}\n📁 ${fn}`;
+            const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            t.textContent = tipText;
+            const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            c.setAttribute('cx', cx.toFixed(1));
+            c.setAttribute('cy', cy.toFixed(1));
+            c.setAttribute('r', '3');
+            c.setAttribute('fill', color);
+            c.setAttribute('opacity', '0.85');
+            c.setAttribute('class', 'algo-scatter-point');
+            c.setAttribute('data-x', String(p.x));
+            c.setAttribute('data-y', String(p.y));
+            c.appendChild(t);
+            c.addEventListener('mouseenter', () => {
+                c.setAttribute('opacity', '1');
+                c.setAttribute('r', '4.5');
+                c.setAttribute('stroke', '#ffc107');
+                c.setAttribute('stroke-width', '1.5');
+                this.showPointTooltip(tipText, cx, cy, c);
+            });
+            c.addEventListener('mouseleave', () => {
+                c.setAttribute('opacity', '0.85');
+                c.setAttribute('r', '3');
+                c.removeAttribute('stroke');
+                c.removeAttribute('stroke-width');
+                this.hidePointTooltip();
+            });
+            c.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this.jumpToRunRow(p.r);
+            });
+            svg.appendChild(c);
+        });
+
+        return this._wrapChart(title, svg);
     }
 
     // cluster 选择器：重叠点 click 时弹出，列出所有同 (x,y) 的条目供选择跳转
@@ -3117,27 +3364,42 @@ class SortingVisualizer {
             const cls = r[2] === 'highlight' ? ' run-kv-highlight' : '';
             return `<div class="run-kv${cls}"><span class="run-kv-label">${label}</span><span class="run-kv-value">${value}</span></div>`;
         }).join('');
-        // 模态框内柱状图：与所属 group 同尺度，并高亮当前 run 所在的柱
+        // 模态框内图表：与所属 group 同尺度，并高亮当前 run 所在位置
+        // 柱状图模式：高亮当前 run 所在的 bin；散点图模式：高亮当前 run 的点
         const group = this.findGroupForRun(run);
         const charts = [];
         if (group && group.items && group.items.length > 1) {
-            // 当前 run 在 group.items 里的索引；用于柱状图高亮对应柱
-            const idxInGroup = group.items.indexOf(run);
-            // 当前 run 的数组大小 → 落到 0-9 / 10-19 / ... 分桶（与 buildIntervalBarChart 一致）
-            const sizeVal = Number(run.arraySize) || 0;
-            const highlightBin = Math.min(10, Math.floor(sizeVal / 10));
-            charts.push(this.buildIntervalBarChart('数组大小 vs 比较次数', group.items, 'arraySize', 'totalComparisons', '#2f9e44'));
-            charts.push(this.buildIntervalBarChart('数组大小 vs 交换次数', group.items, 'arraySize', 'totalSwaps', '#fa5252'));
-            charts.push(this.buildIntervalBarChart('数组大小 vs 耗时 (ms)', group.items, 'arraySize', 'elapsedMs', '#1971c2'));
-            // 渲染完后给"当前 run 所在 bin"的柱描金边
+            const chartBuilder = this.chartType === 'scatter' ? this.buildScatterSVG : this.buildIntervalBarChart;
+            charts.push(chartBuilder.call(this, 'N 与比较次数', group.items, 'arraySize', 'totalComparisons', '#2f9e44'));
+            charts.push(chartBuilder.call(this, 'N 与交换次数', group.items, 'arraySize', 'totalSwaps', '#fa5252'));
+            charts.push(chartBuilder.call(this, 'N 与耗时 (ms)', group.items, 'arraySize', 'elapsedMs', '#1971c2'));
+            // 渲染完后给"当前 run 所在位置"描金边
             setTimeout(() => {
-                modal.querySelectorAll('.algo-bar-svg').forEach(svg => {
-                    const rect = svg.querySelector(`.algo-bar-rect[data-bin-index="${highlightBin}"]`);
-                    if (rect) {
-                        rect.setAttribute('stroke', '#ffc107');
-                        rect.setAttribute('stroke-width', '2');
-                    }
-                });
+                const sizeVal = Number(run.arraySize) || 0;
+                if (this.chartType === 'bar') {
+                    // 取该 size 所在的分桶；svg 里可能渲染了更多桶，所以用首个 svg 的 rect 数兜底
+                    const firstSvg = modal.querySelector('.algo-bar-svg');
+                    const totalBins = firstSvg ? firstSvg.querySelectorAll('.algo-bar-rect').length : 11;
+                    const highlightBin = Math.min(Math.max(0, totalBins - 1), Math.floor(sizeVal / 10));
+                    modal.querySelectorAll('.algo-bar-svg').forEach(svg => {
+                        const rect = svg.querySelector(`.algo-bar-rect[data-bin-index="${highlightBin}"]`);
+                        if (rect) {
+                            rect.setAttribute('stroke', '#ffc107');
+                            rect.setAttribute('stroke-width', '2');
+                        }
+                    });
+                } else {
+                    // 散点图：定位 (arraySize, yField) 相同的点
+                    modal.querySelectorAll('.algo-scatter-svg-only').forEach(svg => {
+                        svg.querySelectorAll('circle.algo-scatter-point').forEach(c => {
+                            if (Number(c.getAttribute('data-x')) === sizeVal) {
+                                c.setAttribute('stroke', '#ffc107');
+                                c.setAttribute('stroke-width', '2');
+                                c.setAttribute('r', '5');
+                            }
+                        });
+                    });
+                }
             }, 0);
         }
         // 渲染：DOM 节点直接 append，保留事件
@@ -3292,7 +3554,7 @@ class SortingVisualizer {
         if (!filePath) return;
 
         const sessionData = {
-            version: '1.1.0',
+            version: '1.1.2',
             exportedAt: new Date().toISOString(),
             runs: this.sessionData
         };
@@ -3400,7 +3662,7 @@ class SortingVisualizer {
                 alert(
                     `应用信息:\n` +
                     `名称: 排序算法可视化测试\n` +
-                    `版本: 1.1.0 (Web版)\n` +
+                    `版本: 1.1.2 (Web版)\n` +
                     `已记录运行数: ${this.sessionData.length}\n` +
                     `未保存运行数: ${this.unsavedCount}`
                 );
